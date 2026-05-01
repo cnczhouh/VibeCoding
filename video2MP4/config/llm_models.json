@@ -1,0 +1,29 @@
+{
+  "default": "mimo-v2.5",
+  "models": [
+    {
+      "id": "mimo-v2.5",
+      "label": "MiMo v2.5",
+      "model": "mimo-v2.5",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "note": "默认写稿模型，适合直接复用当前 MiMo 配置。"
+    },
+    {
+      "id": "mimo-v2-omni",
+      "label": "MiMo v2 Omni",
+      "model": "mimo-v2-omni",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "note": "如果你的账号开通了 omni，可以切换到这个预设。"
+    },
+    {
+      "id": "custom-openai-compatible",
+      "label": "自定义 OpenAI 兼容模型",
+      "model": "your-model-name",
+      "base_url": "https://your-provider.example.com/v1",
+      "api_key_env": "LLM_API_KEY",
+      "note": "把 model、base_url、api_key_env 改成你的模型服务配置。"
+    }
+  ]
+}

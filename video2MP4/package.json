@@ -1,0 +1,12 @@
+{
+  "name": "video-link-to-transcript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export:cookies": "node scripts/export_cookies.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

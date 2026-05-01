@@ -1,0 +1,8 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+outputs/
+uploads/
+cookies/
+.env
