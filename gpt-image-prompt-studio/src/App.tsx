@@ -80,7 +80,7 @@ type CategoryId = (typeof categories)[number]["id"];
 type AspectRatio = (typeof aspectRatios)[number];
 type Quality = (typeof qualities)[number];
 type Page = "workbench" | "gallery";
-const galleryPageSize = 50;
+const galleryPageSize = 20;
 const defaultManifest = {
   count: 3828,
   imageCount: 4536,
