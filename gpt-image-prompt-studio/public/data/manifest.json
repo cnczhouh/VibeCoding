@@ -1,0 +1,29 @@
+{
+  "title": "YouMind GPT Image 2 Prompts",
+  "source": "https://youmind.com/zh-CN/gpt-image-2-prompts",
+  "github": "https://github.com/YouMind-OpenLab/awesome-gpt-image-2",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "count": 3828,
+  "featuredCount": 6,
+  "imageCount": 4536,
+  "languages": [
+    {
+      "language": "en",
+      "count": 3305
+    },
+    {
+      "language": "zh",
+      "count": 312
+    },
+    {
+      "language": "ja",
+      "count": 197
+    },
+    {
+      "language": "ko",
+      "count": 14
+    }
+  ],
+  "generatedAt": "2026-05-02T14:25:16.771Z"
+}
