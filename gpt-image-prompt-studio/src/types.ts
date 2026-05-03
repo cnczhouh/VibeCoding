@@ -13,6 +13,7 @@ export type PromptItem = {
   authorName?: string;
   authorLink?: string;
   coverImage?: string;
+  thumbnailImage?: string;
   images?: string[];
   featured: boolean;
   needReferenceImages?: boolean;

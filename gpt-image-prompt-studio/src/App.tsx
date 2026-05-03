@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, Heart, ImagePlus, Sparkles, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  ExternalLink,
+  Heart,
+  ImagePlus,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { applyArguments, extractArguments } from "./promptArguments";
 import { readStorage, writeStorage } from "./storage";
 import type { ImageResult, PromptItem } from "./types";
@@ -7,80 +18,96 @@ import type { ImageResult, PromptItem } from "./types";
 const languages = ["全部", "zh", "en", "ja", "ko"];
 const aspectRatios = ["auto", "1:1", "16:9", "9:16"] as const;
 const qualities = ["auto", "low", "medium", "high"] as const;
-const categories = [
+type FilterOption = {
+  id: string;
+  label: string;
+  keywords: string[];
+};
+
+type FilterGroup = {
+  id: string;
+  label: string;
+  options: FilterOption[];
+};
+
+type FilterChoice = FilterOption & {
+  groupId: string;
+};
+
+const filterGroups: FilterGroup[] = [
   {
-    id: "all",
-    label: "全部",
-    keywords: [],
-  },
-  {
-    id: "avatar",
-    label: "头像",
-    keywords: ["头像", "avatar", "portrait", "headshot", "profile", "肖像", "证件照"],
-  },
-  {
-    id: "poster",
-    label: "海报",
-    keywords: ["海报", "poster", "广告", "ad ", "advertisement", "宣传", "banner", "封面", "cover"],
-  },
-  {
-    id: "product",
-    label: "产品图",
-    keywords: ["产品", "product", "商品", "包装", "packaging", "电商", "爆炸视图", "exploded"],
-  },
-  {
-    id: "ui",
-    label: "UI 界面",
-    keywords: ["ui", "app", "web", "dashboard", "界面", "网页", "网站", "screen", "screenshot"],
-  },
-  {
-    id: "illustration",
-    label: "插画",
-    keywords: ["插画", "illustration", "绘本", "手绘", "水彩", "漫画", "cartoon", "anime"],
-  },
-  {
-    id: "photo",
-    label: "摄影",
-    keywords: ["摄影", "photo", "photography", "cinematic", "电影感", "镜头", "写实", "realistic"],
-  },
-  {
-    id: "character",
-    label: "角色",
-    keywords: ["角色", "character", "人物", "mascot", "ip", "cosplay", "anime character"],
-  },
-  {
-    id: "map",
-    label: "地图 / 信息图",
-    keywords: ["地图", "map", "信息图", "infographic", "diagram", "图解", "chart", "流程图"],
-  },
-  {
-    id: "typography",
-    label: "文字排版",
-    keywords: ["文字", "typography", "排版", "字体", "logo", "标志", "lettering", "slides", "ppt"],
+    id: "scenario",
+    label: "使用场景",
+    options: [
+      { id: "scenario-profile", label: "个人资料 / 头像", keywords: ["个人资料", "头像", "avatar", "portrait", "headshot", "profile", "肖像", "证件照"] },
+      { id: "scenario-social", label: "社交媒体帖子", keywords: ["社交媒体", "社媒", "post", "instagram", "twitter", "x ", "小红书", "朋友圈", "feed"] },
+      { id: "scenario-infographic", label: "信息图 / 教育视觉图", keywords: ["信息图", "教育", "图解", "infographic", "diagram", "chart", "流程图", "知识", "slides"] },
+      { id: "scenario-youtube", label: "YouTube 缩略图", keywords: ["youtube", "缩略图", "thumbnail", "封面", "cover", "视频封面"] },
+      { id: "scenario-storyboard", label: "漫画 / 故事板", keywords: ["漫画", "故事板", "storyboard", "comic", "manga", "分镜", "连环画"] },
+      { id: "scenario-marketing", label: "产品营销", keywords: ["营销", "广告", "宣传", "campaign", "marketing", "ad ", "poster", "banner"] },
+      { id: "scenario-ecommerce", label: "电商主图", keywords: ["电商", "主图", "商品", "产品图", "product", "packshot", "包装", "详情页"] },
+      { id: "scenario-game", label: "游戏素材", keywords: ["游戏", "game", "asset", "icon", "sprite", "道具", "角色立绘", "场景"] },
+      { id: "scenario-poster", label: "海报 / 传单", keywords: ["海报", "传单", "poster", "flyer", "宣传单", "活动"] },
+      { id: "scenario-app", label: "App / 网页设计", keywords: ["app", "web", "ui", "网页", "网站", "界面", "dashboard", "screenshot"] },
+    ],
   },
   {
     id: "style",
-    label: "风格化",
-    keywords: ["风格", "style", "滤镜", "半色调", "halftone", "像素", "pixel", "复古", "retro"],
+    label: "风格",
+    options: [
+      { id: "style-photo", label: "摄影", keywords: ["摄影", "照片", "photo", "photography", "photorealistic", "写实", "realistic"] },
+      { id: "style-cinematic", label: "电影 / 电影剧照", keywords: ["电影", "剧照", "cinematic", "film still", "镜头", "电影感", "大片"] },
+      { id: "style-anime", label: "动漫 / 漫画", keywords: ["动漫", "漫画", "anime", "manga", "comic", "cel shading"] },
+      { id: "style-illustration", label: "插画", keywords: ["插画", "illustration", "绘本", "手绘", "cartoon"] },
+      { id: "style-sketch", label: "草图 / 线稿", keywords: ["草图", "线稿", "sketch", "line art", "线条", "铅笔"] },
+      { id: "style-graphic-novel", label: "漫画 / 图画小说", keywords: ["图画小说", "graphic novel", "comic book", "美漫", "连环画"] },
+      { id: "style-3d", label: "3D 渲染", keywords: ["3d", "三维", "渲染", "render", "blender", "c4d", "octane"] },
+      { id: "style-chibi", label: "Q版 / Q萌风", keywords: ["q版", "q萌", "chibi", "可爱", "萌", "cute"] },
+      { id: "style-isometric", label: "等距", keywords: ["等距", "isometric", "轴测", "低多边形"] },
+      { id: "style-pixel", label: "像素艺术", keywords: ["像素", "pixel", "pixel art", "8-bit", "16-bit"] },
+      { id: "style-oil", label: "油画", keywords: ["油画", "oil painting", "厚涂", "画布"] },
+      { id: "style-watercolor", label: "水彩画", keywords: ["水彩", "watercolor", "淡彩"] },
+      { id: "style-ink", label: "水墨 / 中国风", keywords: ["水墨", "中国风", "国风", "ink wash", "山水", "宣纸"] },
+      { id: "style-retro", label: "复古 / 怀旧", keywords: ["复古", "怀旧", "retro", "vintage", "旧海报", "胶片"] },
+      { id: "style-cyberpunk", label: "赛博朋克 / 科幻", keywords: ["赛博", "科幻", "cyberpunk", "sci-fi", "未来", "霓虹"] },
+      { id: "style-minimal", label: "极简主义", keywords: ["极简", "minimal", "简洁", "留白", "clean"] },
+    ],
   },
   {
-    id: "space",
-    label: "建筑 / 空间",
-    keywords: ["建筑", "空间", "室内", "interior", "architecture", "房间", "店铺", "展厅", "景观"],
+    id: "subject",
+    label: "主体",
+    options: [
+      { id: "subject-portrait", label: "人像 / 自拍", keywords: ["人像", "自拍", "portrait", "selfie", "face", "人物"] },
+      { id: "subject-influencer", label: "网红 / 模特", keywords: ["网红", "模特", "influencer", "model", "fashion model"] },
+      { id: "subject-character", label: "角色", keywords: ["角色", "character", "mascot", "ip", "英雄", "主角"] },
+      { id: "subject-group", label: "团体 / 情侣", keywords: ["团体", "情侣", "group", "couple", "family", "团队"] },
+      { id: "subject-product", label: "产品", keywords: ["产品", "商品", "product", "packaging", "bottle", "device", "VR", "手机"] },
+      { id: "subject-food", label: "食品 / 饮料", keywords: ["食品", "饮料", "食物", "美食", "food", "drink", "coffee", "甜品"] },
+      { id: "subject-fashion", label: "时尚单品", keywords: ["时尚", "服装", "鞋", "包", "fashion", "clothing", "sneaker"] },
+      { id: "subject-creature", label: "动物 / 生物", keywords: ["动物", "宠物", "猫", "狗", "animal", "creature", "生物"] },
+      { id: "subject-vehicle", label: "车辆", keywords: ["车辆", "汽车", "车", "vehicle", "car", "motorcycle", "飞船"] },
+      { id: "subject-space", label: "建筑 / 室内设计", keywords: ["建筑", "室内", "空间", "interior", "architecture", "房间", "店铺"] },
+      { id: "subject-landscape", label: "风景 / 自然", keywords: ["风景", "自然", "landscape", "nature", "山", "森林", "海"] },
+      { id: "subject-city", label: "城市风光 / 街道", keywords: ["城市", "街道", "city", "street", "都市", "夜景"] },
+      { id: "subject-chart", label: "图表", keywords: ["图表", "chart", "graph", "diagram", "数据", "流程"] },
+      { id: "subject-typography", label: "文本 / 排版", keywords: ["文本", "文字", "排版", "typography", "lettering", "logo", "字体"] },
+      { id: "subject-abstract", label: "摘要 / 背景", keywords: ["抽象", "背景", "abstract", "background", "texture", "pattern"] },
+    ],
   },
-  {
-    id: "other",
-    label: "其他",
-    keywords: [],
-  },
-] as const;
+];
 
-type CategoryId = (typeof categories)[number]["id"];
+const allFilterOptions: FilterChoice[] = filterGroups.flatMap((group) =>
+  group.options.map((option) => ({ ...option, groupId: group.id })),
+);
 
 type AspectRatio = (typeof aspectRatios)[number];
 type Quality = (typeof qualities)[number];
 type Page = "workbench" | "gallery";
 const galleryPageSize = 20;
+const initialGalleryImageLimit = 0;
+const galleryImageBatchSize = 6;
+const galleryImageLoadDelayMs = 650;
+const previewImageLoadDelayMs = 450;
 const defaultManifest = {
   count: 3828,
   imageCount: 4536,
@@ -118,15 +145,29 @@ function rankPrompt(prompt: PromptItem, query: string) {
   return score;
 }
 
-function getPromptCategory(prompt: PromptItem): CategoryId {
-  const searchText = `${prompt.title}\n${prompt.description}\n${prompt.searchText ?? ""}`.toLowerCase();
-  const matchedCategory = categories.find((category) =>
-    category.id !== "all" &&
-    category.id !== "other" &&
-    category.keywords.some((keyword) => searchText.includes(keyword.toLowerCase())),
-  );
+function getPromptSearchText(prompt: PromptItem) {
+  return `${prompt.title}\n${prompt.description}\n${prompt.searchText ?? ""}`.toLowerCase();
+}
 
-  return matchedCategory?.id ?? "other";
+function matchesFilterOption(prompt: PromptItem, option: FilterOption) {
+  const searchText = getPromptSearchText(prompt);
+  return option.keywords.some((keyword) => searchText.includes(keyword.toLowerCase()));
+}
+
+function matchesSelectedFilters(prompt: PromptItem, options: FilterChoice[]) {
+  const groupedOptions = new Map<string, FilterChoice[]>();
+
+  for (const option of options) {
+    groupedOptions.set(option.groupId, [...(groupedOptions.get(option.groupId) ?? []), option]);
+  }
+
+  return Array.from(groupedOptions.values()).every((groupOptions) =>
+    groupOptions.some((option) => matchesFilterOption(prompt, option)),
+  );
+}
+
+function getPromptMatchedLabel(prompt: PromptItem) {
+  return allFilterOptions.find((option) => matchesFilterOption(prompt, option))?.label ?? prompt.language;
 }
 
 function getImageUrl(url?: string) {
@@ -148,6 +189,18 @@ function getImageUrl(url?: string) {
 function withCacheBust(path: string) {
   const separator = path.includes("?") ? "&" : "?";
   return `${path}${separator}v=${Date.now()}`;
+}
+
+function isLocalGeneratedImage(url?: string) {
+  return Boolean(url && (url.startsWith("/api/generated/") || url.startsWith("/generated/")));
+}
+
+function normalizeGeneratedImageUrl(url: string) {
+  if (url.startsWith("/generated/")) {
+    return url.replace("/generated/", "/api/generated/");
+  }
+
+  return url;
 }
 
 async function fetchJson<T>(paths: string[]) {
@@ -178,9 +231,12 @@ export default function App() {
   const [language, setLanguage] = useState("全部");
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<CategoryId>("all");
+  const [selectedFilterIds, setSelectedFilterIds] = useState<string[]>([]);
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [activePage, setActivePage] = useState<Page>("workbench");
   const [galleryPage, setGalleryPage] = useState(1);
+  const [galleryImageLimit, setGalleryImageLimit] = useState(initialGalleryImageLimit);
+  const [canLoadPreviewImage, setCanLoadPreviewImage] = useState(false);
   const [selectedPrompt, setSelectedPrompt] = useState<PromptItem | null>(null);
   const [argumentValues, setArgumentValues] = useState<Record<string, string>>({});
   const [manualPrompt, setManualPrompt] = useState("");
@@ -189,7 +245,13 @@ export default function App() {
   const [model, setModel] = useState("gpt-image-2");
   const [referenceImages, setReferenceImages] = useState<string[]>([]);
   const [favorites, setFavorites] = useState<number[]>(() => readStorage("promptStudio:favorites", []));
-  const [history, setHistory] = useState<ImageResult[]>(() => readStorage("promptStudio:history", []));
+  const [history, setHistory] = useState<ImageResult[]>(() =>
+    readStorage<ImageResult[]>("promptStudio:history", [])
+      .filter((item) => isLocalGeneratedImage(item.imageUrl))
+      .map((item) => ({ ...item, imageUrl: normalizeGeneratedImageUrl(item.imageUrl) })),
+  );
+  const [failedGalleryImages, setFailedGalleryImages] = useState<string[]>([]);
+  const [failedResultImages, setFailedResultImages] = useState<string[]>([]);
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
@@ -205,13 +267,18 @@ export default function App() {
     const visualLines = Math.ceil(Math.max(manualPrompt.length, 1) / 92);
     return Math.min(18, Math.max(4, lineBreaks + visualLines));
   }, [manualPrompt]);
+  const activeFilterOptions = useMemo(
+    () => selectedFilterIds.map((id) => allFilterOptions.find((option) => option.id === id)).filter(Boolean) as FilterChoice[],
+    [selectedFilterIds],
+  );
+  const failedGalleryImageSet = useMemo(() => new Set(failedGalleryImages), [failedGalleryImages]);
 
   const filteredPromptMatches = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return prompts
       .map((prompt) => ({ prompt, score: rankPrompt(prompt, normalizedQuery) }))
       .filter(({ prompt, score }) => {
-        if (activeCategory !== "all" && getPromptCategory(prompt) !== activeCategory) return false;
+        if (activeFilterOptions.length && !matchesSelectedFilters(prompt, activeFilterOptions)) return false;
         if (featuredOnly && !prompt.featured) return false;
         if (favoritesOnly && !favorites.includes(prompt.id)) return false;
         if (language !== "全部" && prompt.language !== language) return false;
@@ -220,7 +287,7 @@ export default function App() {
       })
       .sort((a, b) => b.score - a.score || Number(b.prompt.featured) - Number(a.prompt.featured))
       .map(({ prompt }) => prompt);
-  }, [activeCategory, favorites, favoritesOnly, featuredOnly, language, prompts, query]);
+  }, [activeFilterOptions, favorites, favoritesOnly, featuredOnly, language, prompts, query]);
   const galleryPageCount = Math.max(1, Math.ceil(filteredPromptMatches.length / galleryPageSize));
   const safeGalleryPage = Math.min(galleryPage, galleryPageCount);
   const filteredPrompts = useMemo(() => {
@@ -236,6 +303,7 @@ export default function App() {
     () => history.find((item) => item.id === selectedResultId) ?? null,
     [history, selectedResultId],
   );
+  const failedResultImageSet = useMemo(() => new Set(failedResultImages), [failedResultImages]);
 
   useEffect(() => {
     async function loadManifest() {
@@ -291,11 +359,36 @@ export default function App() {
 
   useEffect(() => {
     setGalleryPage(1);
-  }, [activeCategory, favoritesOnly, featuredOnly, language, query]);
+  }, [favoritesOnly, featuredOnly, language, query, selectedFilterIds]);
 
   useEffect(() => {
     setGalleryPage((current) => Math.min(current, galleryPageCount));
   }, [galleryPageCount]);
+
+  useEffect(() => {
+    setGalleryImageLimit(initialGalleryImageLimit);
+  }, [activePage, favoritesOnly, featuredOnly, language, query, safeGalleryPage, selectedFilterIds]);
+
+  useEffect(() => {
+    if (activePage !== "gallery" || galleryImageLimit >= filteredPrompts.length) return;
+
+    const timer = window.setTimeout(() => {
+      setGalleryImageLimit((current) => Math.min(filteredPrompts.length, current + galleryImageBatchSize));
+    }, galleryImageLimit === 0 ? galleryImageLoadDelayMs : 420);
+
+    return () => window.clearTimeout(timer);
+  }, [activePage, filteredPrompts.length, galleryImageLimit]);
+
+  useEffect(() => {
+    setCanLoadPreviewImage(false);
+    if (!selectedPrompt?.coverImage) return;
+
+    const timer = window.setTimeout(() => {
+      setCanLoadPreviewImage(true);
+    }, previewImageLoadDelayMs);
+
+    return () => window.clearTimeout(timer);
+  }, [selectedPrompt?.id, selectedPrompt?.coverImage]);
 
   function toggleFavorite(id: number) {
     setFavorites((current) =>
@@ -348,8 +441,30 @@ export default function App() {
     }
   }
 
-  function selectCategory(categoryId: CategoryId) {
-    setActiveCategory(categoryId);
+  function toggleFilterOption(filterId: string) {
+    setSelectedFilterIds((current) =>
+      current.includes(filterId) ? current.filter((id) => id !== filterId) : [...current, filterId],
+    );
+  }
+
+  function clearGalleryFilters() {
+    setSelectedFilterIds([]);
+    setFeaturedOnly(false);
+    setFavoritesOnly(false);
+    setLanguage("全部");
+  }
+
+  function markGalleryImageFailed(url: string) {
+    setFailedGalleryImages((current) => (current.includes(url) ? current : [...current, url].slice(-500)));
+  }
+
+  function markResultImageFailed(url: string) {
+    setFailedResultImages((current) => (current.includes(url) ? current : [...current, url].slice(-120)));
+  }
+
+  function removeFailedResult(id: string) {
+    setHistory((current) => current.filter((item) => item.id !== id));
+    setSelectedResultId((current) => (current === id ? null : current));
   }
 
   function changeGalleryPage(page: number) {
@@ -379,6 +494,52 @@ export default function App() {
             <ChevronRight size={16} />
           </button>
         </div>
+      </div>
+    );
+  }
+
+  function renderFilterPanel() {
+    if (!isFilterPanelOpen) return null;
+
+    return (
+      <div className="filter-panel-backdrop" role="presentation" onClick={() => setIsFilterPanelOpen(false)}>
+        <section className="filter-panel" role="dialog" aria-modal="true" aria-label="筛选模板" onClick={(event) => event.stopPropagation()}>
+          <div className="filter-panel-head">
+            <strong>筛选</strong>
+            <button type="button" aria-label="关闭筛选" onClick={() => setIsFilterPanelOpen(false)}>
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="filter-groups">
+            {filterGroups.map((group) => (
+              <div className="filter-group" key={group.id}>
+                <h3>{group.label}</h3>
+                <div className="filter-tags">
+                  {group.options.map((option) => (
+                    <button
+                      type="button"
+                      key={option.id}
+                      aria-pressed={selectedFilterIds.includes(option.id)}
+                      onClick={() => toggleFilterOption(option.id)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="filter-panel-actions">
+            <button type="button" onClick={clearGalleryFilters}>
+              清空选择
+            </button>
+            <button type="button" onClick={() => setIsFilterPanelOpen(false)}>
+              确定
+            </button>
+          </div>
+        </section>
       </div>
     );
   }
@@ -443,7 +604,7 @@ export default function App() {
       const result: ImageResult = {
         id: crypto.randomUUID(),
         prompt,
-        imageUrl: data.imageUrl,
+        imageUrl: normalizeGeneratedImageUrl(data.imageUrl),
         filePath: data.filePath,
         createdAt: new Date().toISOString(),
       };
@@ -462,7 +623,7 @@ export default function App() {
       <header className="top-bar">
         <div className="brand">
           <span>IMG STUDIO BY ZH</span>
-          <strong>GPT生图系统V1.0</strong>
+          <strong>GPT生图系统V1.1</strong>
         </div>
         <nav className="page-tabs" aria-label="页面切换">
           <button
@@ -480,7 +641,7 @@ export default function App() {
             模板广场
           </button>
         </nav>
-        <div className="library-stats">
+        <div className={classNames("library-stats", activePage === "gallery" && "visible")}>
           <div>
             <strong>{manifest.count}</strong>
             <span>提示词</span>
@@ -530,17 +691,20 @@ export default function App() {
               </section>
             )}
 
-            <section className="editor-layout">
+            <section className={classNames("editor-layout", !selectedPrompt && "empty-workbench")}>
               <div className="preview-panel">
                 {selectedPrompt ? (
                   <>
                     <div className="image-preview">
-                      {selectedPrompt.coverImage ? (
+                      {selectedPrompt.coverImage && canLoadPreviewImage ? (
                         <img
                           src={getImageUrl(selectedPrompt.coverImage)}
                           alt={selectedPrompt.title}
+                          loading="lazy"
                           decoding="async"
                         />
+                      ) : selectedPrompt.coverImage ? (
+                        <div>示例图加载中</div>
                       ) : (
                         <div>暂无示例图</div>
                       )}
@@ -605,23 +769,14 @@ export default function App() {
                         />
                       </label>
                     </div>
-                    <button
-                      className="side-generate-button"
-                      type="button"
-                      onClick={generateImage}
-                      disabled={isGenerating || isLoadingPrompt || !finalPrompt.trim()}
-                    >
-                      <Check size={30} />
-                      {isLoadingPrompt ? "加载中" : isGenerating ? "生成中" : "生成"}
-                    </button>
                   </div>
 
                   <div className="inline-settings">
-                    <label>
+                    <label style={{ "--value-length": model.length } as React.CSSProperties}>
                       模型
                       <input value={model} onChange={(event) => setModel(event.target.value)} />
                     </label>
-                    <label>
+                    <label style={{ "--value-length": aspectRatio.length } as React.CSSProperties}>
                       画幅
                       <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value as AspectRatio)}>
                         {aspectRatios.map((item) => (
@@ -629,7 +784,7 @@ export default function App() {
                         ))}
                       </select>
                     </label>
-                    <label>
+                    <label style={{ "--value-length": quality.length } as React.CSSProperties}>
                       质量
                       <select value={quality} onChange={(event) => setQuality(event.target.value as Quality)}>
                         {qualities.map((item) => (
@@ -637,6 +792,15 @@ export default function App() {
                         ))}
                       </select>
                     </label>
+                    <button
+                      className="side-generate-button"
+                      type="button"
+                      onClick={generateImage}
+                      disabled={isGenerating || isLoadingPrompt || !finalPrompt.trim()}
+                    >
+                      <Check size={24} />
+                      {isLoadingPrompt ? "加载中" : isGenerating ? "生成中" : "生成"}
+                    </button>
                   </div>
 
                   {referenceImages.length > 0 ? (
@@ -665,14 +829,30 @@ export default function App() {
                   <h2>预览</h2>
                   {selectedResult ? (
                     <>
-                      <a className="result-preview" href={selectedResult.imageUrl} target="_blank" rel="noreferrer">
-                        <img src={selectedResult.imageUrl} alt="生成结果" />
-                      </a>
+                      {!isLocalGeneratedImage(selectedResult.imageUrl) || failedResultImageSet.has(selectedResult.imageUrl) ? (
+                        <div className="result-preview result-preview-failed">
+                          <strong>图片加载失败</strong>
+                          <span>这个结果地址不可用，请重新生成一次。</span>
+                        </div>
+                      ) : (
+                        <a className="result-preview" href={selectedResult.imageUrl} target="_blank" rel="noreferrer">
+                          <img
+                            src={selectedResult.imageUrl}
+                            alt="生成结果"
+                            onError={() => markResultImageFailed(selectedResult.imageUrl)}
+                          />
+                        </a>
+                      )}
                       <div className="result-actions">
-                        <a href={selectedResult.imageUrl} target="_blank" rel="noreferrer">
+                        <a
+                          href={selectedResult.imageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-disabled={!isLocalGeneratedImage(selectedResult.imageUrl)}
+                        >
                           打开大图
                         </a>
-                        <a href={selectedResult.imageUrl} download>
+                        <a href={selectedResult.imageUrl} download aria-disabled={!isLocalGeneratedImage(selectedResult.imageUrl)}>
                           下载
                         </a>
                       </div>
@@ -694,8 +874,20 @@ export default function App() {
                           className={classNames("history-card", selectedResult?.id === item.id && "active")}
                           onClick={() => setSelectedResultId(item.id)}
                         >
-                          <img src={item.imageUrl} alt="" />
+                          {failedResultImageSet.has(item.imageUrl) ? (
+                            <span className="history-image-failed">加载失败</span>
+                          ) : (
+                            <img src={item.imageUrl} alt="" onError={() => markResultImageFailed(item.imageUrl)} />
+                          )}
                           <small>{formatDate(item.createdAt)}</small>
+                          {failedResultImageSet.has(item.imageUrl) ? (
+                            <span className="history-remove" onClick={(event) => {
+                              event.stopPropagation();
+                              removeFailedResult(item.id);
+                            }}>
+                              移除
+                            </span>
+                          ) : null}
                         </button>
                       ))
                     ) : (
@@ -708,10 +900,11 @@ export default function App() {
           </>
         ) : (
           <section className="template-gallery-section standalone-gallery">
+            {renderFilterPanel()}
             <div className="gallery-head">
               <div>
                 <p>模板广场</p>
-                <h2>按分类找提示词</h2>
+                <h2>按需求找提示词</h2>
               </div>
               <div className="gallery-count">
                 <span>当前显示 {galleryStart}-{galleryEnd} 个</span>
@@ -723,6 +916,7 @@ export default function App() {
               <label className="search-control">
                 搜索模板
                 <input
+                  className="gallery-search-input"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="头像、海报、产品图、像素风..."
@@ -750,20 +944,30 @@ export default function App() {
               >
                 我的收藏
               </button>
+              <button
+                type="button"
+                className="open-filter-button"
+                aria-pressed={selectedFilterIds.length > 0}
+                onClick={() => setIsFilterPanelOpen(true)}
+              >
+                <SlidersHorizontal size={16} />
+                筛选{selectedFilterIds.length ? ` ${selectedFilterIds.length}` : ""}
+              </button>
             </div>
 
-            <div className="category-row">
-              {categories.map((category) => (
-                <button
-                  type="button"
-                  key={category.id}
-                  aria-pressed={activeCategory === category.id}
-                  onClick={() => selectCategory(category.id)}
-                >
-                  {category.label}
+            {activeFilterOptions.length ? (
+              <div className="selected-filter-row" aria-label="已选筛选">
+                {activeFilterOptions.map((option) => (
+                  <button type="button" key={option.id} onClick={() => toggleFilterOption(option.id)}>
+                    {option.label}
+                    <X size={13} />
+                  </button>
+                ))}
+                <button type="button" onClick={() => setSelectedFilterIds([])}>
+                  清空
                 </button>
-              ))}
-            </div>
+              </div>
+            ) : null}
 
             {renderGalleryPagination()}
 
@@ -771,6 +975,9 @@ export default function App() {
               <div className="template-masonry">
                 {filteredPrompts.map((prompt, index) => {
                   const isFavorite = favorites.includes(prompt.id);
+                  const galleryImageUrl = getImageUrl(prompt.thumbnailImage || prompt.coverImage);
+                  const shouldLoadGalleryImage =
+                    Boolean(galleryImageUrl) && index < galleryImageLimit && !failedGalleryImageSet.has(galleryImageUrl);
 
                   return (
                     <div
@@ -789,15 +996,24 @@ export default function App() {
                         onClick={() => selectPrompt(prompt)}
                         disabled={isLoadingPrompt}
                       >
-                        {prompt.coverImage ? (
-                          <img src={getImageUrl(prompt.coverImage)} alt="" loading="lazy" decoding="async" />
+                        {shouldLoadGalleryImage ? (
+                          <img
+                            src={galleryImageUrl}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            onError={() => markGalleryImageFailed(galleryImageUrl)}
+                          />
                         ) : (
-                          <span className="tile-fallback">{prompt.language}</span>
+                          <span className="tile-fallback tile-image-placeholder">
+                            <span>{prompt.language}</span>
+                            <small>图片稍后加载</small>
+                          </span>
                         )}
                         <span className="tile-info">
                           <strong>{prompt.title}</strong>
                           <small>
-                            {categories.find((category) => category.id === getPromptCategory(prompt))?.label}
+                            {getPromptMatchedLabel(prompt)}
                             {prompt.featured ? " / 精选" : ""}
                           </small>
                         </span>

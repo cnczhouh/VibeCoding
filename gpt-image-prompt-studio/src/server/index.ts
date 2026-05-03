@@ -1,12 +1,13 @@
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { promisify } from "node:util";
+import sharp from "sharp";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -16,11 +17,14 @@ const projectRoot = process.cwd();
 const distDir = join(projectRoot, "dist");
 const generatedDir = join(projectRoot, "public", "generated");
 const imageCacheDir = join(projectRoot, "public", "image-cache");
+const imageThumbsDir = join(projectRoot, "public", "image-thumbs");
 const promptsPath = join(projectRoot, "public", "data", "prompts.json");
 const manifestPath = join(projectRoot, "public", "data", "manifest.json");
 const promptIndexPath = join(projectRoot, "public", "data", "prompts-index.json");
 let promptCache: Array<{ id: number }> | null = null;
+let promptCacheMtimeMs = 0;
 const execFileAsync = promisify(execFile);
+const cachedImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 
 app.use(cors({ origin: ["http://127.0.0.1:5180", "http://localhost:5180"] }));
 app.use(express.json({ limit: "25mb" }));
@@ -86,8 +90,70 @@ async function saveBase64Image(base64: string) {
   return {
     fileName,
     filePath,
-    imageUrl: `/generated/${fileName}`,
+    imageUrl: `/api/generated/${fileName}`,
   };
+}
+
+function getGeneratedExtension(contentType = "", url = "") {
+  const normalizedType = contentType.toLowerCase();
+  if (normalizedType.includes("jpeg") || normalizedType.includes("jpg")) return ".jpg";
+  if (normalizedType.includes("png")) return ".png";
+  if (normalizedType.includes("webp")) return ".webp";
+
+  try {
+    const pathExtension = extname(new URL(url).pathname).toLowerCase();
+    if ([".jpg", ".jpeg", ".png", ".webp"].includes(pathExtension)) return pathExtension;
+  } catch {
+    // Use png by default.
+  }
+
+  return ".png";
+}
+
+async function saveRemoteImage(url: string) {
+  await mkdir(generatedDir, { recursive: true });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+
+  try {
+    const upstreamResponse = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      },
+      signal: controller.signal,
+    });
+
+    if (!upstreamResponse.ok) {
+      throw new Error(`图片下载失败，状态码 ${upstreamResponse.status}。`);
+    }
+
+    const contentType = upstreamResponse.headers.get("content-type") || "image/png";
+    if (!contentType.startsWith("image/")) {
+      throw new Error("图片接口返回的不是图片内容。");
+    }
+
+    const extension = getGeneratedExtension(contentType, url);
+    const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}${extension}`;
+    const filePath = join(generatedDir, fileName);
+    await writeFile(filePath, Buffer.from(await upstreamResponse.arrayBuffer()));
+
+    return {
+      fileName,
+      filePath,
+      imageUrl: `/api/generated/${fileName}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function getGeneratedContentType(fileName: string) {
+  const extension = extname(fileName).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".webp") return "image/webp";
+  return "image/png";
 }
 
 async function fetchProvider(endpoint: string, init: RequestInit) {
@@ -158,8 +224,11 @@ function getOpenAIErrorMessage(data: unknown) {
 }
 
 async function readPrompts() {
-  if (!promptCache) {
+  const promptStat = await stat(promptsPath);
+
+  if (!promptCache || promptStat.mtimeMs !== promptCacheMtimeMs) {
     promptCache = JSON.parse(await readFile(promptsPath, "utf8")) as Array<{ id: number }>;
+    promptCacheMtimeMs = promptStat.mtimeMs;
   }
 
   return promptCache;
@@ -170,8 +239,36 @@ function getImageExtension(url: URL, contentType = "") {
   if (contentType.includes("webp")) return ".webp";
   if (contentType.includes("gif")) return ".gif";
   const pathExtension = extname(url.pathname).toLowerCase();
-  if ([".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(pathExtension)) return pathExtension;
+  if (cachedImageExtensions.includes(pathExtension)) return pathExtension;
   return ".jpg";
+}
+
+async function findCachedImage(hash: string) {
+  for (const extension of cachedImageExtensions) {
+    const filePath = join(imageCacheDir, `${hash}${extension}`);
+    try {
+      await stat(filePath);
+      return filePath;
+    } catch {
+      // Try the next possible extension.
+    }
+  }
+
+  return "";
+}
+
+async function buildImageThumbnail(sourcePath: string, targetPath: string) {
+  await mkdir(imageThumbsDir, { recursive: true });
+  await sharp(sourcePath)
+    .rotate()
+    .resize({
+      width: 360,
+      height: 360,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .webp({ quality: 45 })
+    .toFile(targetPath);
 }
 
 async function downloadImageToCache(imageUrl: URL, filePath: string) {
@@ -237,6 +334,26 @@ app.get("/api/health", (_request, response) => {
   });
 });
 
+app.get("/api/generated/:fileName", async (request, response) => {
+  const fileName = basename(request.params.fileName || "");
+
+  if (!fileName || fileName !== request.params.fileName || !/\.(png|jpe?g|webp)$/i.test(fileName)) {
+    response.status(400).send("Invalid generated image name");
+    return;
+  }
+
+  const filePath = join(generatedDir, fileName);
+
+  try {
+    await stat(filePath);
+    response.setHeader("Cache-Control", "no-store");
+    response.type(getGeneratedContentType(fileName));
+    response.sendFile(filePath);
+  } catch {
+    response.status(404).send("Generated image not found");
+  }
+});
+
 app.get("/api/manifest", async (_request, response) => {
   try {
     response.setHeader("Cache-Control", "no-store");
@@ -275,17 +392,12 @@ app.get("/api/image-proxy", async (request, response) => {
     const hash = createHash("sha1").update(imageUrl.href).digest("hex");
     const extension = getImageExtension(imageUrl);
     const targetFilePath = join(imageCacheDir, `${hash}${extension}`);
-    const cachedFiles = [".jpg", ".jpeg", ".png", ".webp", ".gif"].map((extension) => join(imageCacheDir, `${hash}${extension}`));
 
-    for (const filePath of cachedFiles) {
-      try {
-        await readFile(filePath);
-        response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-        response.sendFile(filePath);
-        return;
-      } catch {
-        // Try the next possible extension.
-      }
+    const cachedFilePath = await findCachedImage(hash);
+    if (cachedFilePath) {
+      response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      response.sendFile(cachedFilePath);
+      return;
     }
 
     const contentType = await downloadImageToCache(imageUrl, targetFilePath);
@@ -295,6 +407,48 @@ app.get("/api/image-proxy", async (request, response) => {
     response.sendFile(targetFilePath);
   } catch (error) {
     response.status(502).send(error instanceof Error ? error.message : "Image fetch failed");
+  }
+});
+
+app.get("/api/image-thumb", async (request, response) => {
+  const rawUrl = String(request.query.url || "");
+
+  try {
+    const imageUrl = new URL(rawUrl);
+
+    if (imageUrl.hostname !== "cms-assets.youmind.com") {
+      response.status(400).send("Unsupported image host");
+      return;
+    }
+
+    await mkdir(imageCacheDir, { recursive: true });
+    await mkdir(imageThumbsDir, { recursive: true });
+
+    const hash = createHash("sha1").update(imageUrl.href).digest("hex");
+    const thumbFilePath = join(imageThumbsDir, `${hash}.webp`);
+
+    try {
+      await stat(thumbFilePath);
+      response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      response.type("image/webp").sendFile(thumbFilePath);
+      return;
+    } catch {
+      // Build it below.
+    }
+
+    let cachedFilePath = await findCachedImage(hash);
+    if (!cachedFilePath) {
+      const extension = getImageExtension(imageUrl);
+      cachedFilePath = join(imageCacheDir, `${hash}${extension}`);
+      await downloadImageToCache(imageUrl, cachedFilePath);
+    }
+
+    await buildImageThumbnail(cachedFilePath, thumbFilePath);
+
+    response.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    response.type("image/webp").sendFile(thumbFilePath);
+  } catch (error) {
+    response.status(502).send(error instanceof Error ? error.message : "Image thumbnail failed");
   }
 });
 
@@ -422,6 +576,10 @@ app.post("/api/generate", async (request, response) => {
       const saved = await saveBase64Image(item.b64_json);
       imageUrl = saved.imageUrl;
       filePath = saved.filePath;
+    } else if (item?.url) {
+      const saved = await saveRemoteImage(item.url);
+      imageUrl = saved.imageUrl;
+      filePath = saved.filePath;
     }
 
     if (!imageUrl) {
@@ -437,7 +595,20 @@ app.post("/api/generate", async (request, response) => {
   }
 });
 
-app.use("/generated", express.static(generatedDir));
+app.use("/generated", express.static(generatedDir, {
+  maxAge: 0,
+  setHeaders(response) {
+    response.setHeader("Cache-Control", "no-store");
+  },
+}));
+app.use("/image-cache", express.static(imageCacheDir, {
+  maxAge: "1y",
+  immutable: true,
+}));
+app.use("/image-thumbs", express.static(imageThumbsDir, {
+  maxAge: "1y",
+  immutable: true,
+}));
 app.use(express.static(distDir, {
   setHeaders(response, filePath) {
     const normalizedFilePath = filePath.replace(/\\/g, "/");
